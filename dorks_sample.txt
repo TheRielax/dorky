@@ -1,0 +1,12 @@
+# DORKY Sample Wordlist for Reconnaissance & Security Auditing
+# Lines starting with # are comments and will be ignored by Batch Dork Execution.
+# You can specify a target domain in the interactive wizard when executing this file.
+
+filetype:env OR filetype:ini OR filetype:conf OR filetype:yaml "password"
+filetype:sql OR filetype:db OR filetype:sqlite "insert into" OR "phpmyadmin"
+filetype:log "error" OR "warning" OR "password" OR "exception"
+intitle:"index of /" OR intitle:"parent directory"
+intitle:"admin login" OR inurl:admin login OR intitle:"dashboard login"
+"api_key" OR "access_token" OR "secret_key" filetype:txt OR filetype:env
+inurl:config OR inurl:settings filetype:php OR filetype:json
+intitle:"phpinfo()" "PHP Version"
