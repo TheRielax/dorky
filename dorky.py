@@ -33,10 +33,13 @@ except ImportError:
 
 # Optional third-party search libraries (suppress IDE unresolved import warnings)
 try:
-    from duckduckgo_search import DDGS  # type: ignore
+    from ddgs import DDGS  # type: ignore
 except ImportError:
     try:
-        from ddgs import DDGS  # type: ignore
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            from duckduckgo_search import DDGS  # type: ignore
     except ImportError:
         DDGS = None
 
