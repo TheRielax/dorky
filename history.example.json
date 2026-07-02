@@ -1,0 +1,17 @@
+[
+    {
+        "timestamp": "2026-07-02 12:00:00",
+        "query": "site:example.com intitle:\"admin login\" OR inurl:admin",
+        "target_domain": "example.com",
+        "engines": {
+            "DuckDuckGo": {
+                "adapted_query": "site:example.com intitle:\"admin login\" OR inurl:admin",
+                "results_count": 3
+            },
+            "Bing": {
+                "adapted_query": "site:example.com intitle:\"admin login\" OR inurl:admin",
+                "results_count": 2
+            }
+        }
+    }
+]

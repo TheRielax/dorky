@@ -130,6 +130,12 @@ class ConfigManager:
                     config.update(data)
             except Exception as e:
                 print(f"{Colors.YELLOW}[!] Could not parse {cls.CONFIG_FILE}: {e}{Colors.RESET}")
+        else:
+            try:
+                with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=4)
+            except Exception:
+                pass
         config["google_api_key"] = os.environ.get("GOOGLE_API_KEY", config.get("google_api_key", ""))
         config["google_cse_id"] = os.environ.get("GOOGLE_CSE_ID", config.get("google_cse_id", ""))
         config["brave_api_key"] = os.environ.get("BRAVE_API_KEY", config.get("brave_api_key", ""))
@@ -207,6 +213,12 @@ class HistoryManager:
                     return json.load(f)
             except Exception:
                 return []
+        else:
+            try:
+                with open(cls.HISTORY_FILE, 'w', encoding='utf-8') as f:
+                    json.dump([], f, indent=4)
+            except Exception:
+                pass
         return []
 
     @classmethod

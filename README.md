@@ -84,6 +84,9 @@ You can configure your keys interactively inside DORKY by selecting **Option [11
 - `GOOGLE_API_KEY` & `GOOGLE_CSE_ID` (Google Custom Search API)
 - `BRAVE_API_KEY` (Brave Search API)
 
+> [!NOTE]
+> **Local Configuration & Session Privacy**: Files such as `config.json` and `history.json` are strictly ignored by Git (`.gitignore`) to prevent accidental leaks of API tokens or search logs. When cloning the repository or running DORKY for the first time, clean local copies of these files are generated automatically. Reference templates showing the expected structure are provided in `config.example.json` and `history.example.json`.
+
 ### 🐙 GitHub Personal Access Token Requirements
 When using **Option [9] (`GitHub Code & Secret Dorking`)**, unauthenticated requests to GitHub Search API (`/search/code`) are rate-limited to **10 requests per minute**. Adding a GitHub token raises your rate limit to **30 requests per minute** and enables searching within private repositories.
 
