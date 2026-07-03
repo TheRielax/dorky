@@ -25,6 +25,7 @@ Unlike traditional dorking scripts that assume standard Google syntax works ever
   - **🏛️ Wayback Machine Archive Explorer**: Mine historical CDX archives (`web.archive.org`) to discover forgotten endpoints, old `.env` files, database dumps, and past administrative panels.
   - **🐙 GitHub Code & Secret Dorking**: Scan open source GitHub repositories via REST API for leaked API keys, tokens, configuration files, and target domain mentions (supports optional GitHub PAT).
   - **🔬 Web Technology & CMS Fingerprinter**: Lightweight HTTP header & DOM analyzer detecting CMS platforms (WordPress, Joomla, Drupal), Frontend frameworks (React, Next.js, Vue), Backends (PHP, Laravel, Django), and WAFs (Cloudflare).
+  - **📞 Phone Number OSINT & Footprinting**: 100% offline analysis and formal validation of international phone numbers using `phonenumbers` and internal prefix maps (identifying E.164 validity, region/location, line type, timezones, and original ministerial carrier block allocation). Automatically constructs strictly grouped Boolean footprint dorks across 4 target categories (general web formatting, Telegram/WhatsApp/social profiles, spam/reputation directories, and PDF/TXT/Pastebin document leaks) with instant multi-engine search execution.
 - **🛡️ Anti-Rate-Limit & Resilient Fallbacks**: Built-in multi-layer fallback chains powered by `ddgs` and direct scraping. If an engine imposes rate limits or CAPTCHAs, DORKY seamlessly pivots across clean backends while validating output URLs to reject ad-tracking redirects.
 - **🛠️ Interactive Dork Builder**: Step-by-step interactive CLI wizard to construct complex queries without memorizing advanced syntax.
 - **🎯 Pre-Built Reconnaissance Templates**: Ready-to-use vulnerability and OSINT search templates for exposed configuration files, database dumps, sensitive logs, and login panels.
@@ -78,7 +79,7 @@ python dorky.py
 
 DORKY works out-of-the-box using direct web scraping and public search backends (`ddgs`). However, to avoid CAPTCHAs, rate limits, or to access authenticated scanning endpoints (like GitHub code search), you can configure official API keys.
 
-You can configure your keys interactively inside DORKY by selecting **Option [11] (`Official API Keys Configuration`)** from the main menu, or by editing `config.json` / setting environment variables:
+You can configure your keys interactively inside DORKY by selecting **Option [12] (`Official API Keys Configuration`)** from the main menu, or by editing `config.json` / setting environment variables:
 
 - `GITHUB_API_TOKEN` (GitHub Personal Access Token)
 - `GOOGLE_API_KEY` & `GOOGLE_CSE_ID` (Google Custom Search API)
