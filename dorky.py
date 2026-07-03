@@ -54,6 +54,18 @@ try:
 except ImportError:
     phonenumbers = None
 
+import socket
+
+try:
+    import dns.resolver  # type: ignore
+except ImportError:
+    dns = None
+
+try:
+    import whois as pywhois  # type: ignore
+except ImportError:
+    pywhois = None
+
 
 if sys.version_info.major < 3:
     print("\n[x] Error: DORKY requires Python 3.x!\n")
@@ -74,12 +86,33 @@ class Colors:
 
 
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:127.0) Gecko/20100101 Firefox/127.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15'
 ]
+
+def get_random_headers():
+    ua = random.choice(USER_AGENTS)
+    headers = {
+        'User-Agent': ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1'
+    }
+    if 'Chrome' in ua or 'Edg' in ua:
+        headers['Sec-Ch-Ua'] = '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"'
+        headers['Sec-Ch-Ua-Mobile'] = '?0'
+        headers['Sec-Ch-Ua-Platform'] = '"Windows"' if 'Windows' in ua else '"macOS"'
+    return headers
 
 
 def print_banner():
@@ -324,7 +357,8 @@ class SearchEngines:
                     if 'href' in r and SearchEngines.is_valid_url(r['href']) and r['href'] not in results:
                         results.append(r['href'])
         except Exception as e:
-            print(f"{Colors.RED}[!] DuckDuckGo search failed: {e}{Colors.RESET}")
+            if "No results found" not in str(e):
+                print(f"{Colors.RED}[!] DuckDuckGo search failed: {e}{Colors.RESET}")
         return results
 
     @staticmethod
@@ -333,13 +367,18 @@ class SearchEngines:
         if DDGS is None:
             print(f"{Colors.RED}[!] Bing error: 'ddgs' library not installed.{Colors.RESET}")
             return results
-        try:
-            with DDGS() as ddgs:
-                for r in ddgs.text(query, backend="bing", max_results=max_results):
-                    if 'href' in r and SearchEngines.is_valid_url(r['href']) and r['href'] not in results:
-                        results.append(r['href'])
-        except Exception as e:
-            print(f"{Colors.RED}[!] Bing search failed: {e}{Colors.RESET}")
+        for b_end in ["bing", None, "lite"]:
+            try:
+                with DDGS() as ddgs:
+                    res_iter = ddgs.text(query, backend=b_end, max_results=max_results) if b_end else ddgs.text(query, max_results=max_results)
+                    for r in res_iter:
+                        if 'href' in r and SearchEngines.is_valid_url(r['href']) and r['href'] not in results:
+                            results.append(r['href'])
+                if results:
+                    return results
+            except Exception:
+                time.sleep(random.uniform(0.3, 0.6))
+                continue
         return results
 
     @staticmethod
@@ -368,15 +407,17 @@ class SearchEngines:
                 print(f"{Colors.YELLOW}[!] Google API request failed: {e}. Falling back to scraping...{Colors.RESET}")
 
         if DDGS is not None:
-            for b_end in ["google", "bing", "mojeek", "yandex", "yahoo", "duckduckgo", "startpage"]:
+            for b_end in ["google", "bing", None, "lite"]:
                 try:
                     with DDGS() as ddgs:
-                        for r in ddgs.text(query, backend=b_end, max_results=max_results):
+                        res_iter = ddgs.text(query, backend=b_end, max_results=max_results) if b_end else ddgs.text(query, max_results=max_results)
+                        for r in res_iter:
                             if 'href' in r and SearchEngines.is_valid_url(r['href']) and r['href'] not in results:
                                 results.append(r['href'])
                     if results:
                         return results
                 except Exception:
+                    time.sleep(random.uniform(0.3, 0.6))
                     continue
 
         if google_search is None:
@@ -423,21 +464,20 @@ class SearchEngines:
                 print(f"{Colors.YELLOW}[!] Brave API failed: {e}. Falling back to scraping...{Colors.RESET}")
 
         if DDGS is not None:
-            for b_end in ["brave", "bing", "mojeek", "yandex", "yahoo", "duckduckgo", "startpage"]:
+            for b_end in ["brave", "bing", None, "lite"]:
                 try:
                     with DDGS() as ddgs:
-                        for r in ddgs.text(query, backend=b_end, max_results=max_results):
+                        res_iter = ddgs.text(query, backend=b_end, max_results=max_results) if b_end else ddgs.text(query, max_results=max_results)
+                        for r in res_iter:
                             if 'href' in r and SearchEngines.is_valid_url(r['href']) and r['href'] not in results:
                                 results.append(r['href'])
                     if results:
                         return results
                 except Exception:
+                    time.sleep(random.uniform(0.3, 0.6))
                     continue
 
-        headers = {
-            'User-Agent': random.choice(USER_AGENTS),
-            'Accept-Encoding': 'gzip, deflate'
-        }
+        headers = get_random_headers()
         try:
             encoded_query = urllib.parse.quote_plus(query)
             url = f"https://search.brave.com/search?q={encoded_query}"
@@ -462,21 +502,20 @@ class SearchEngines:
     def search_yandex(query, max_results):
         results = []
         if DDGS is not None:
-            for b_end in ["yandex", "bing", "mojeek", "yahoo", "duckduckgo", "startpage"]:
+            for b_end in ["yandex", "bing", None, "lite"]:
                 try:
                     with DDGS() as ddgs:
-                        for r in ddgs.text(query, backend=b_end, max_results=max_results):
+                        res_iter = ddgs.text(query, backend=b_end, max_results=max_results) if b_end else ddgs.text(query, max_results=max_results)
+                        for r in res_iter:
                             if 'href' in r and SearchEngines.is_valid_url(r['href']) and r['href'] not in results:
                                 results.append(r['href'])
                     if results:
                         return results
                 except Exception:
+                    time.sleep(random.uniform(0.3, 0.6))
                     continue
 
-        headers = {
-            'User-Agent': random.choice(USER_AGENTS),
-            'Accept-Encoding': 'gzip, deflate'
-        }
+        headers = get_random_headers()
         try:
             encoded_query = urllib.parse.quote_plus(query)
             url = f"https://yandex.com/search/?text={encoded_query}"
@@ -1142,6 +1181,370 @@ class ReconManager:
             return dork_list[int(scan_choice)-1][1]
         return None
 
+    @classmethod
+    def email_osint(cls):
+        print(f"\n{Colors.CYAN}{Colors.BOLD}=============================================================================")
+        print("                   EMAIL ADDRESS OSINT & BREACH FOOTPRINTING                 ")
+        print("=============================================================================" + Colors.RESET)
+        
+        email_input = input(f"{Colors.GREEN}[+] Enter Target Email Address (e.g. target@company.com): {Colors.RESET}").strip()
+        if not email_input or '@' not in email_input:
+            print(f"{Colors.RED}[!] Invalid email syntax provided.{Colors.RESET}")
+            return None
+
+        username, domain = email_input.split('@', 1)
+        domain = domain.lower().strip()
+        
+        print(f"\n{Colors.YELLOW}[*] Performing offline analysis & DNS MX probe for {domain}...{Colors.RESET}")
+        
+        provider_type = "Custom / Self-Hosted Mail Server"
+        mx_records = []
+        
+        free_providers = ["gmail.com", "yahoo.com", "yahoo.it", "hotmail.com", "hotmail.it", "outlook.com", "outlook.it", "live.com", "live.it", "icloud.com", "aol.com", "libero.it", "virgilio.it", "tiscali.it", "aruba.it", "fastwebnet.it", "alice.it", "tin.it"]
+        privacy_providers = ["protonmail.com", "proton.me", "tutanota.com", "tuta.com", "tuta.io", "posteo.de", "mailbox.org"]
+        
+        if domain in free_providers:
+            provider_type = "Public Free Webmail Provider"
+        elif domain in privacy_providers:
+            provider_type = "Encrypted / Privacy Webmail Provider"
+        
+        if dns is not None:
+            try:
+                answers = dns.resolver.resolve(domain, 'MX')
+                for rdata in sorted(answers, key=lambda x: x.preference):
+                    mx_host = str(rdata.exchange).rstrip('.')
+                    mx_records.append(f"{mx_host} (Pref: {rdata.preference})")
+                    mx_lower = mx_host.lower()
+                    if provider_type == "Custom / Self-Hosted Mail Server":
+                        if "google.com" in mx_lower or "googlemail.com" in mx_lower:
+                            provider_type = "Google Workspace (Corporate / Enterprise)"
+                        elif "outlook.com" in mx_lower or "protection.outlook.com" in mx_lower:
+                            provider_type = "Microsoft 365 / Exchange Corporate"
+                        elif "zoho." in mx_lower:
+                            provider_type = "Zoho Mail Corporate"
+            except Exception:
+                mx_records.append("MX lookup failed / No MX records found")
+        else:
+            mx_records.append("dnspython not installed (Skipping MX lookup)")
+
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Email Intelligence Summary:{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'Target Email':<22}:{Colors.RESET} {Colors.WHITE}{email_input}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'User Handle':<22}:{Colors.RESET} {Colors.WHITE}{username}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'Domain Name':<22}:{Colors.RESET} {Colors.WHITE}{domain}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'Infrastructure Type':<22}:{Colors.RESET} {Colors.MAGENTA}{provider_type}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'MX Mail Exchange':<22}:{Colors.RESET} {Colors.WHITE}{', '.join(mx_records[:3]) if mx_records else 'None'}{Colors.RESET}")
+
+        dorks = {
+            "Exact Email Mentions": f'"{email_input}"',
+            "Public Breach & Spreadsheet Leaks": f'("{email_input}") (filetype:xls OR filetype:xlsx OR filetype:csv OR filetype:sql OR filetype:txt OR filetype:json)',
+            "Pastebin & Text Dump Search": f'("{email_input}") (site:pastebin.com OR site:justpaste.it OR site:rentry.co OR site:ghostbin.com)',
+            "Professional & Developer Activity": f'("{email_input}" OR "{username}") (site:linkedin.com OR site:github.com OR site:gitlab.com OR site:stackoverflow.com)'
+        }
+
+        print(f"\n{Colors.CYAN}{Colors.BOLD}[+] Generated Email Footprint Dorks:{Colors.RESET}")
+        dork_list = list(dorks.items())
+        for idx, (title, q) in enumerate(dork_list, 1):
+            print(f"  {Colors.YELLOW}[{idx}] {title}:{Colors.RESET}")
+            print(f"      {Colors.WHITE}{q}{Colors.RESET}")
+
+        print(f"\n{Colors.GREEN}[+] Select a footprint query to launch multi-engine scan immediately (1-{len(dork_list)}, or Enter to return): {Colors.RESET}", end="")
+        scan_choice = input().strip()
+        if scan_choice.isdigit() and 1 <= int(scan_choice) <= len(dork_list):
+            return dork_list[int(scan_choice)-1][1]
+        return None
+
+    @classmethod
+    def username_osint(cls):
+        print(f"\n{Colors.CYAN}{Colors.BOLD}=============================================================================")
+        print("                 USERNAME & SOCIAL CROSS-PLATFORM FOOTPRINTING               ")
+        print("=============================================================================" + Colors.RESET)
+        
+        uname = input(f"{Colors.GREEN}[+] Enter Target Username / Handle: {Colors.RESET}").strip()
+        if not uname:
+            return None
+            
+        print(f"\n{Colors.YELLOW}[*] Probing public profile endpoints across platforms in real-time...{Colors.RESET}\n")
+        
+        platforms = [
+            ("GitHub", f"https://github.com/{uname}"),
+            ("Reddit", f"https://www.reddit.com/user/{uname}"),
+            ("Telegram", f"https://t.me/{uname}"),
+            ("Steam", f"https://steamcommunity.com/id/{uname}"),
+            ("HackTheBox", f"https://app.hackthebox.com/users/{uname}"),
+            ("Pinterest", f"https://www.pinterest.com/{uname}/"),
+            ("Vimeo", f"https://vimeo.com/{uname}"),
+            ("SoundCloud", f"https://soundcloud.com/{uname}"),
+            ("GitLab", f"https://gitlab.com/{uname}"),
+            ("Bitbucket", f"https://bitbucket.org/{uname}/"),
+            ("Pastebin", f"https://pastebin.com/u/{uname}"),
+            ("Spotify", f"https://open.spotify.com/user/{uname}"),
+            ("Wikipedia", f"https://en.wikipedia.org/wiki/User:{uname}")
+        ]
+        
+        found_urls = []
+        headers = {'User-Agent': random.choice(USER_AGENTS)}
+        
+        for name, url in platforms:
+            try:
+                resp = requests.get(url, headers=headers, timeout=4, allow_redirects=True)
+                if resp.status_code == 200 and "Not Found" not in resp.text[:1000] and "Page not found" not in resp.text[:1000]:
+                    print(f"  {Colors.GREEN}{Colors.BOLD}[FOUND]{Colors.RESET}     {name:<12} : {Colors.WHITE}{url}{Colors.RESET}")
+                    found_urls.append((name, url))
+                else:
+                    print(f"  {Colors.WHITE}[NOT FOUND]{Colors.RESET} {name:<12} : {Colors.WHITE}{url}{Colors.RESET}")
+            except Exception:
+                print(f"  {Colors.YELLOW}[TIMEOUT]{Colors.RESET}   {name:<12} : {Colors.WHITE}{url}{Colors.RESET}")
+
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Username Probe Summary: {len(found_urls)} active profiles confirmed out of {len(platforms)} checked.{Colors.RESET}")
+
+        dorks = {
+            "Cross-Platform Profile Hunt": f'("{uname}") (site:github.com OR site:reddit.com OR site:t.me OR site:linkedin.com OR site:twitter.com OR site:instagram.com)',
+            "Code & Repository Mentions": f'("{uname}") (site:pastebin.com OR site:gitlab.com OR site:bitbucket.org OR site:sourceforge.net)',
+            "Forum & Discussion Activity": f'intitle:"{uname}" OR inurl:"user/{uname}" OR inurl:"profile/{uname}" OR inurl:"member/{uname}"'
+        }
+
+        print(f"\n{Colors.CYAN}{Colors.BOLD}[+] Generated Username Footprint Dorks:{Colors.RESET}")
+        dork_list = list(dorks.items())
+        for idx, (title, q) in enumerate(dork_list, 1):
+            print(f"  {Colors.YELLOW}[{idx}] {title}:{Colors.RESET}")
+            print(f"      {Colors.WHITE}{q}{Colors.RESET}")
+
+        print(f"\n{Colors.GREEN}[+] Select a footprint query to launch multi-engine scan immediately (1-{len(dork_list)}, or Enter to return): {Colors.RESET}", end="")
+        scan_choice = input().strip()
+        if scan_choice.isdigit() and 1 <= int(scan_choice) <= len(dork_list):
+            return dork_list[int(scan_choice)-1][1]
+        return None
+
+    @classmethod
+    def dns_whois_osint(cls):
+        print(f"\n{Colors.CYAN}{Colors.BOLD}=============================================================================")
+        print("             PASSIVE DNS, WHOIS & SECURITY POSTURE (SPF/DMARC)               ")
+        print("=============================================================================" + Colors.RESET)
+        
+        target = input(f"{Colors.GREEN}[+] Enter Target Domain Name (e.g. company.com): {Colors.RESET}").strip()
+        if not target:
+            return None
+        target = re.sub(r'^https?://', '', target).split('/')[0].lower().strip()
+        
+        print(f"\n{Colors.YELLOW}[*] Executing WHOIS query & passive DNS infrastructure audit for {target}...{Colors.RESET}")
+        
+        registrar = "Unknown"
+        creation_date = "Unknown"
+        expiry_date = "Unknown"
+        org = "Unknown / Privacy Protected"
+        raw_text = ""
+        w = None
+        
+        if pywhois is not None:
+            try:
+                w = pywhois.whois(target)
+                if hasattr(w, 'text') and w.text:
+                    raw_text += str(w.text) + "\n"
+            except Exception:
+                pass
+
+        if not raw_text or len(raw_text) < 100 or ("Organization:" not in raw_text and "Registrant" not in raw_text):
+            try:
+                import subprocess
+                res = subprocess.run(["whois", target], capture_output=True, text=True, timeout=5)
+                if res.stdout:
+                    raw_text += "\n" + res.stdout
+            except Exception:
+                pass
+
+        if not raw_text or len(raw_text) < 100 or ("Organization:" not in raw_text and "Registrant" not in raw_text):
+            try:
+                tld = target.split('.')[-1]
+                whois_server = f"whois.nic.{tld}" if tld in ['it', 'uk', 'fr', 'de', 'nl', 'eu'] else "whois.verisign-grs.com"
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(4)
+                s.connect((whois_server, 43))
+                s.send(f"{target}\r\n".encode('utf-8'))
+                response = b""
+                while True:
+                    data = s.recv(4096)
+                    if not data:
+                        break
+                    response += data
+                s.close()
+                raw_text += "\n" + response.decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+
+        if w is not None:
+            if w.registrar:
+                registrar = str(w.registrar)
+            if w.creation_date:
+                c_date = w.creation_date[0] if isinstance(w.creation_date, list) else w.creation_date
+                creation_date = str(c_date)[:10]
+            if w.expiration_date:
+                e_date = w.expiration_date[0] if isinstance(w.expiration_date, list) else w.expiration_date
+                expiry_date = str(e_date)[:10]
+            if w.org:
+                org = str(w.org)
+
+        if org == "Unknown / Privacy Protected" or org == "None" or not org:
+            reg_match = re.search(r'(?:Registrant|Admin Contact|Technical Contact)\s*[\r\n]+(?:\s+[^\r\n]+[\r\n]+)*?\s*(?:Organization|Org|Name|Holder):\s*([^\r\n]+)', raw_text, re.IGNORECASE)
+            if reg_match and reg_match.group(1).strip() and "REDACTED" not in reg_match.group(1).upper():
+                org = reg_match.group(1).strip()
+            else:
+                line_match = re.search(r'^\s*(?:Registrant Organization|Registrant Name|Holder|Org|Organization):\s*([^\r\n]+)', raw_text, re.IGNORECASE | re.MULTILINE)
+                if line_match and line_match.group(1).strip() and "REDACTED" not in line_match.group(1).upper():
+                    org = line_match.group(1).strip()
+
+        if registrar == "Unknown" or registrar == "None" or not registrar:
+            reg_match = re.search(r'Registrar\s*[\r\n]+(?:\s+[^\r\n]+[\r\n]+)*?\s*(?:Organization|Name):\s*([^\r\n]+)', raw_text, re.IGNORECASE)
+            if reg_match:
+                registrar = reg_match.group(1).strip()
+            else:
+                line_match = re.search(r'^\s*Registrar:\s*([^\r\n]+)', raw_text, re.IGNORECASE | re.MULTILINE)
+                if line_match:
+                    registrar = line_match.group(1).strip()
+
+        if creation_date == "Unknown" or not creation_date:
+            c_match = re.search(r'^\s*(?:Created|Creation Date):\s*([0-9]{4}-[0-9]{2}-[0-9]{2})', raw_text, re.IGNORECASE | re.MULTILINE)
+            if c_match:
+                creation_date = c_match.group(1).strip()
+
+        if expiry_date == "Unknown" or not expiry_date:
+            e_match = re.search(r'^\s*(?:Expire Date|Expiration Date|Registry Expiry Date):\s*([0-9]{4}-[0-9]{2}-[0-9]{2})', raw_text, re.IGNORECASE | re.MULTILINE)
+            if e_match:
+                expiry_date = e_match.group(1).strip()
+
+        ipv4_addrs = []
+        try:
+            for info in socket.getaddrinfo(target, None, socket.AF_INET):
+                addr = info[4][0]
+                if addr not in ipv4_addrs:
+                    ipv4_addrs.append(addr)
+        except Exception:
+            ipv4_addrs.append("Unresolved")
+
+        spf_policy = "Missing / Not Configured (Vulnerable to Spoofing!)"
+        dmarc_policy = "Missing / Not Configured (Vulnerable to Spoofing!)"
+        spf_color = Colors.RED
+        dmarc_color = Colors.RED
+        
+        if dns is not None:
+            try:
+                txt_ans = dns.resolver.resolve(target, 'TXT')
+                for rdata in txt_ans:
+                    txt_str = "".join([b.decode('utf-8', errors='ignore') for b in rdata.strings])
+                    if txt_str.startswith("v=spf1"):
+                        spf_policy = txt_str
+                        if "-all" in txt_str:
+                            spf_color = Colors.GREEN
+                        elif "~all" in txt_str:
+                            spf_color = Colors.YELLOW
+            except Exception:
+                pass
+                
+            try:
+                dmarc_ans = dns.resolver.resolve(f"_dmarc.{target}", 'TXT')
+                for rdata in dmarc_ans:
+                    txt_str = "".join([b.decode('utf-8', errors='ignore') for b in rdata.strings])
+                    if txt_str.startswith("v=DMARC1"):
+                        dmarc_policy = txt_str
+                        if "p=reject" in txt_str:
+                            dmarc_color = Colors.GREEN
+                        elif "p=quarantine" in txt_str:
+                            dmarc_color = Colors.YELLOW
+            except Exception:
+                pass
+
+        def get_contact_lines(section_name, txt):
+            m = re.search(rf'{section_name}s?[\r\n]+((?:\s+[^\r\n]+[\r\n]*)+)', txt, re.IGNORECASE)
+            if not m:
+                return []
+            res = []
+            for l in m.group(1).splitlines():
+                l = l.strip()
+                if not l or l.startswith("Created:") or l.startswith("Last Update:"):
+                    continue
+                if ':' in l:
+                    parts = l.split(':', 1)
+                    res.append((parts[0].strip(), parts[1].strip()))
+                else:
+                    res.append(("", l))
+            return res
+
+        reg_lines = get_contact_lines("Registrant", raw_text)
+        admin_lines = get_contact_lines("Admin Contact", raw_text)
+        tech_lines = get_contact_lines("Technical Contact", raw_text)
+
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[+] WHOIS Registrant Summary:{Colors.RESET}")
+        if reg_lines:
+            for k, v in reg_lines:
+                if k:
+                    print(f"  {Colors.CYAN}{k:<22}:{Colors.RESET} {Colors.WHITE}{v}{Colors.RESET}")
+                else:
+                    print(f"  {Colors.CYAN}{'':<22} {Colors.RESET} {Colors.WHITE}{v}{Colors.RESET}")
+        else:
+            print(f"  {Colors.CYAN}{'Organization':<22}:{Colors.RESET} {Colors.WHITE}{org}{Colors.RESET}")
+            if w is not None and getattr(w, 'address', None):
+                print(f"  {Colors.CYAN}{'Address':<22}:{Colors.RESET} {Colors.WHITE}{w.address}{Colors.RESET}")
+
+        if admin_lines:
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] WHOIS Administrative Contact:{Colors.RESET}")
+            for k, v in admin_lines:
+                if k:
+                    print(f"  {Colors.CYAN}{k:<22}:{Colors.RESET} {Colors.WHITE}{v}{Colors.RESET}")
+                else:
+                    print(f"  {Colors.CYAN}{'':<22} {Colors.RESET} {Colors.WHITE}{v}{Colors.RESET}")
+        elif w is not None and (getattr(w, 'admin_name', None) or getattr(w, 'admin_org', None)):
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] WHOIS Administrative Contact:{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'Name':<22}:{Colors.RESET} {Colors.WHITE}{getattr(w, 'admin_name', 'Unknown')}{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'Organization':<22}:{Colors.RESET} {Colors.WHITE}{getattr(w, 'admin_org', 'Unknown')}{Colors.RESET}")
+
+        if tech_lines:
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] WHOIS Technical Contact:{Colors.RESET}")
+            for k, v in tech_lines:
+                if k:
+                    print(f"  {Colors.CYAN}{k:<22}:{Colors.RESET} {Colors.WHITE}{v}{Colors.RESET}")
+                else:
+                    print(f"  {Colors.CYAN}{'':<22} {Colors.RESET} {Colors.WHITE}{v}{Colors.RESET}")
+        elif w is not None and (getattr(w, 'tech_name', None) or getattr(w, 'tech_org', None)):
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] WHOIS Technical Contact:{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'Name':<22}:{Colors.RESET} {Colors.WHITE}{getattr(w, 'tech_name', 'Unknown')}{Colors.RESET}")
+            print(f"  {Colors.CYAN}{'Organization':<22}:{Colors.RESET} {Colors.WHITE}{getattr(w, 'tech_org', 'Unknown')}{Colors.RESET}")
+
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Registrar & DNS Infrastructure:{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'Registrar Name':<22}:{Colors.RESET} {Colors.WHITE}{registrar}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'Created / Expiry':<22}:{Colors.RESET} {Colors.WHITE}{creation_date} to {expiry_date}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'Resolved IPv4':<22}:{Colors.RESET} {Colors.WHITE}{', '.join(ipv4_addrs[:4])}{Colors.RESET}")
+
+        print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Email Spoofing Security Posture (Anti-Phishing Audit):{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'SPF Record':<22}:{Colors.RESET} {spf_color}{spf_policy}{Colors.RESET}")
+        print(f"  {Colors.CYAN}{'DMARC Record':<22}:{Colors.RESET} {dmarc_color}{dmarc_policy}{Colors.RESET}")
+
+        if raw_text.strip():
+            print(f"\n{Colors.MAGENTA}{Colors.BOLD}=============================================================================")
+            print("                        COMPLETE RAW WHOIS RECORD OUTPUT                     ")
+            print("=============================================================================" + Colors.RESET)
+            for rline in raw_text.strip().splitlines():
+                print(f"  {Colors.WHITE}{rline}{Colors.RESET}")
+            print(f"{Colors.MAGENTA}============================================================================={Colors.RESET}")
+
+        dorks = {
+            "Full Site Indexing & General Web Footprint": f'site:{target}',
+            "Subdomain & Dev/Staging Discovery": f'site:{target} (inurl:dev OR inurl:test OR inurl:staging OR inurl:api OR inurl:portal OR inurl:app)',
+            "Administrative & Login Panels": f'site:{target} (inurl:admin OR inurl:login OR inurl:portal OR intitle:"dashboard" OR intitle:"login")',
+            "Exposed Configuration & Env Files": f'site:{target} (filetype:xml OR filetype:conf OR filetype:cfg OR filetype:env OR filetype:ini OR filetype:log)',
+            "Public Document & Backup Harvester": f'site:{target} (filetype:pdf OR filetype:docx OR filetype:xlsx OR filetype:sql OR filetype:bkp OR filetype:db)'
+        }
+
+        print(f"\n{Colors.CYAN}{Colors.BOLD}[+] Generated Domain Infrastructure Dorks:{Colors.RESET}")
+        dork_list = list(dorks.items())
+        for idx, (title, q) in enumerate(dork_list, 1):
+            print(f"  {Colors.YELLOW}[{idx}] {title}:{Colors.RESET}")
+            print(f"      {Colors.WHITE}{q}{Colors.RESET}")
+
+        print(f"\n{Colors.GREEN}[+] Select a footprint query to launch multi-engine scan immediately (1-{len(dork_list)}, or Enter to return): {Colors.RESET}", end="")
+        scan_choice = input().strip()
+        if scan_choice.isdigit() and 1 <= int(scan_choice) <= len(dork_list):
+            return dork_list[int(scan_choice)-1][1]
+        return None
+
 
 
 def show_syntax_guide():
@@ -1302,11 +1705,14 @@ def main():
             print(f"  {Colors.CYAN}[9]{Colors.RESET} GitHub Code & Secret Dorking")
             print(f"  {Colors.CYAN}[10]{Colors.RESET} Web Technology & CMS Fingerprinter")
             print(f"  {Colors.CYAN}[11]{Colors.RESET} Phone Number OSINT & Footprinting")
+            print(f"  {Colors.CYAN}[12]{Colors.RESET} Email Address OSINT & Breach Footprinting")
+            print(f"  {Colors.CYAN}[13]{Colors.RESET} Username & Social Cross-Platform Footprinting")
+            print(f"  {Colors.CYAN}[14]{Colors.RESET} Domain DNS, WHOIS & Security Posture (SPF/DMARC)")
             print(f"  {Colors.BOLD}{Colors.MAGENTA}[-- Settings & Exit --]{Colors.RESET}")
-            print(f"  {Colors.CYAN}[12]{Colors.RESET} Official API Keys Configuration (Google, Brave, GitHub)")
-            print(f"  {Colors.CYAN}[13]{Colors.RESET} Exit")
+            print(f"  {Colors.CYAN}[15]{Colors.RESET} Official API Keys Configuration (Google, Brave, GitHub)")
+            print(f"  {Colors.CYAN}[16]{Colors.RESET} Exit")
 
-            choice = input(f"\n{Colors.GREEN}[+] Select Option (1-13): {Colors.RESET}").strip()
+            choice = input(f"\n{Colors.GREEN}[+] Select Option (1-16): {Colors.RESET}").strip()
 
             if choice == "1":
                 query = DorkBuilder.run()
@@ -1350,13 +1756,28 @@ def main():
                     run_search_session(query)
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
             elif choice == "12":
-                ConfigManager.configure_interactive()
+                query = ReconManager.email_osint()
+                if query:
+                    run_search_session(query)
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
             elif choice == "13":
+                query = ReconManager.username_osint()
+                if query:
+                    run_search_session(query)
+                input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
+            elif choice == "14":
+                query = ReconManager.dns_whois_osint()
+                if query:
+                    run_search_session(query)
+                input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
+            elif choice == "15":
+                ConfigManager.configure_interactive()
+                input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
+            elif choice == "16":
                 print(f"\n{Colors.GREEN}{Colors.BOLD}[*] Thank you for using DORKY! Happy hunting!{Colors.RESET}\n")
                 sys.exit(0)
             else:
-                print(f"\n{Colors.RED}[!] Invalid selection. Please choose between 1 and 13.{Colors.RESET}\n")
+                print(f"\n{Colors.RED}[!] Invalid selection. Please choose between 1 and 16.{Colors.RESET}\n")
                 time.sleep(1)
 
         except KeyboardInterrupt:
