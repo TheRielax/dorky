@@ -9,6 +9,12 @@ import time
 import json
 import random
 
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
+
 class Colors:
     RED = "\033[91m"
     GREEN = "\033[92m"

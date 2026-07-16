@@ -330,7 +330,7 @@ def main():
             print(f"  {Colors.CYAN}[7]{Colors.RESET} Passive Subdomain Enumeration (Certificate Logs)")
             print(f"  {Colors.CYAN}[8]{Colors.RESET} Wayback Machine Historical Archive Recon")
             print(f"  {Colors.CYAN}[9]{Colors.RESET} GitHub Code & Secret Dorking")
-            print(f"  {Colors.CYAN}[10]{Colors.RESET} Web Technology & CMS Fingerprinter")
+            print(f"  {Colors.CYAN}[10]{Colors.RESET} Web Technology, CMS & Site Tree Fingerprinter")
             print(f"  {Colors.CYAN}[11]{Colors.RESET} Phone Number OSINT & Footprinting")
             print(f"  {Colors.CYAN}[12]{Colors.RESET} Email Address OSINT & Breach Footprinting")
             print(f"  {Colors.CYAN}[13]{Colors.RESET} Username & Social Cross-Platform Footprinting")
