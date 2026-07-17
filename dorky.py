@@ -24,6 +24,7 @@ from recon.phone import run_phone_osint
 from recon.email import run_email_osint
 from recon.username import run_username_osint
 from recon.whois import run_dns_whois_osint
+from recon.infra_suite import run_infrastructure_suite
 
 
 class DorkBuilder:
@@ -327,19 +328,17 @@ def main():
             print(f"  {Colors.CYAN}[5]{Colors.RESET} Batch Dork Execution from File")
             print(f"  {Colors.CYAN}[6]{Colors.RESET} Search History & Re-run")
             print(f"  {Colors.BOLD}{Colors.MAGENTA}[-- Target Recon & OSINT Suite --]{Colors.RESET}")
-            print(f"  {Colors.CYAN}[7]{Colors.RESET} Passive Subdomain Enumeration (Certificate Logs)")
+            print(f"  {Colors.CYAN}[7]{Colors.RESET} Target Infrastructure, Domain & Web Footprinting Suite {Colors.YELLOW}(DNS, Subdomains, Tech & Automated Full Scan){Colors.RESET}")
             print(f"  {Colors.CYAN}[8]{Colors.RESET} Wayback Machine Historical Archive Recon")
             print(f"  {Colors.CYAN}[9]{Colors.RESET} GitHub Code & Secret Dorking")
-            print(f"  {Colors.CYAN}[10]{Colors.RESET} Web Technology, CMS & Site Tree Fingerprinter")
-            print(f"  {Colors.CYAN}[11]{Colors.RESET} Phone Number OSINT & Footprinting")
-            print(f"  {Colors.CYAN}[12]{Colors.RESET} Email Address OSINT & Breach Footprinting")
-            print(f"  {Colors.CYAN}[13]{Colors.RESET} Username & Social Cross-Platform Footprinting")
-            print(f"  {Colors.CYAN}[14]{Colors.RESET} Domain DNS, WHOIS & Security Posture (SPF/DMARC)")
+            print(f"  {Colors.CYAN}[10]{Colors.RESET} Phone Number OSINT & Footprinting")
+            print(f"  {Colors.CYAN}[11]{Colors.RESET} Email Address OSINT & Breach Footprinting")
+            print(f"  {Colors.CYAN}[12]{Colors.RESET} Username & Social Cross-Platform Footprinting")
             print(f"  {Colors.BOLD}{Colors.MAGENTA}[-- Settings & Exit --]{Colors.RESET}")
-            print(f"  {Colors.CYAN}[15]{Colors.RESET} Official API Keys Configuration (Google, Brave, GitHub)")
-            print(f"  {Colors.CYAN}[16]{Colors.RESET} Exit")
+            print(f"  {Colors.CYAN}[13]{Colors.RESET} Official API Keys Configuration (Google, Brave, GitHub)")
+            print(f"  {Colors.CYAN}[14]{Colors.RESET} Exit")
 
-            choice = input(f"\n{Colors.GREEN}[+] Select Option (1-16): {Colors.RESET}").strip()
+            choice = input(f"\n{Colors.GREEN}[+] Select Option (1-14): {Colors.RESET}").strip()
 
             if choice == "1":
                 query = DorkBuilder.run()
@@ -366,7 +365,7 @@ def main():
                     run_search_session(query)
                     input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
             elif choice == "7":
-                run_subdomain_recon(search_callback=run_search_session)
+                run_infrastructure_suite(search_callback=run_search_session)
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
             elif choice == "8":
                 run_wayback_recon()
@@ -375,36 +374,28 @@ def main():
                 run_github_dorking()
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
             elif choice == "10":
-                run_technology_detector()
-                input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
-            elif choice == "11":
                 query = run_phone_osint()
                 if query:
                     run_search_session(query)
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
-            elif choice == "12":
+            elif choice == "11":
                 query = run_email_osint()
                 if query:
                     run_search_session(query)
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
-            elif choice == "13":
+            elif choice == "12":
                 query = run_username_osint()
                 if query:
                     run_search_session(query)
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
-            elif choice == "14":
-                query = run_dns_whois_osint()
-                if query:
-                    run_search_session(query)
-                input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
-            elif choice == "15":
+            elif choice == "13":
                 ConfigManager.configure_interactive()
                 input(f"\n{Colors.YELLOW}Press Enter to return to main menu...{Colors.RESET}")
-            elif choice == "16":
+            elif choice == "14":
                 print(f"\n{Colors.GREEN}{Colors.BOLD}[*] Thank you for using DORKY! Happy hunting!{Colors.RESET}\n")
                 sys.exit(0)
             else:
-                print(f"\n{Colors.RED}[!] Invalid selection. Please choose between 1 and 16.{Colors.RESET}\n")
+                print(f"\n{Colors.RED}[!] Invalid selection. Please choose between 1 and 14.{Colors.RESET}\n")
                 time.sleep(1)
 
         except KeyboardInterrupt:

@@ -19,12 +19,13 @@ except ImportError:
 from core.config import Colors
 
 
-def run_dns_whois_osint():
+def run_dns_whois_osint(target=None, interactive=True):
     print(f"\n{Colors.CYAN}{Colors.BOLD}=============================================================================")
     print("             PASSIVE DNS, WHOIS & SECURITY POSTURE (SPF/DMARC)               ")
     print("=============================================================================" + Colors.RESET)
     
-    target = input(f"{Colors.GREEN}[+] Enter Target Domain Name (e.g. company.com): {Colors.RESET}").strip()
+    if not target:
+        target = input(f"{Colors.GREEN}[+] Enter Target Domain Name (e.g. company.com): {Colors.RESET}").strip()
     if not target:
         return None
     target = re.sub(r'^https?://', '', target).split('/')[0].lower().strip()
@@ -241,6 +242,23 @@ def run_dns_whois_osint():
     for idx, (title, q) in enumerate(dork_list, 1):
         print(f"  {Colors.YELLOW}[{idx}] {title}:{Colors.RESET}")
         print(f"      {Colors.WHITE}{q}{Colors.RESET}")
+
+    if not interactive:
+        return {
+            "target": target,
+            "registrar": registrar,
+            "creation_date": creation_date,
+            "expiry_date": expiry_date,
+            "org": org,
+            "ipv4_addrs": ipv4_addrs,
+            "spf_policy": spf_policy,
+            "dmarc_policy": dmarc_policy,
+            "reg_lines": reg_lines,
+            "admin_lines": admin_lines,
+            "tech_lines": tech_lines,
+            "raw_text": raw_text.strip(),
+            "dorks": dorks
+        }
 
     print(f"\n{Colors.GREEN}[+] Select a footprint query to launch multi-engine scan immediately (1-{len(dork_list)}, or Enter to return): {Colors.RESET}", end="")
     scan_choice = input().strip()

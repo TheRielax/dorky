@@ -53,44 +53,208 @@ def format_timestamp(ts):
     return f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}"
 
 
-def run_wayback_exposed_files(domain):
-    """Original Wayback recon mode looking for sensitive exposed file extensions."""
-    ext_input = input(f"{Colors.GREEN}[+] Sensitive file extensions comma-separated [default: env,ini,conf,sql,log,bak,zip,git]: {Colors.RESET}").strip()
-    exts = [e.strip().lstrip('.') for e in (ext_input.split(',') if ext_input else ['env', 'ini', 'conf', 'sql', 'log', 'bak', 'zip', 'git']) if e.strip()]
+def filter_cdx_endpoints(rows, inurl_kws, exclude_kws, filetypes, status_codes):
+    """
+    Filter CDX JSON rows across URL keywords (inurl), exclusion keywords (-exclude),
+    file extensions (filetype), and HTTP status codes (status).
+    Returns a list of tuples: (orig_url, formatted_timestamp, statuscode, mimetype, raw_ts, snapshot_url).
+    """
+    if not rows or len(rows) <= 1:
+        return []
 
-    print(f"{Colors.YELLOW}[*] Mining Internet Archive historical index for *.{domain} matching extensions: {', '.join(exts)}...{Colors.RESET}")
-    url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original,timestamp&collapse=urlkey&limit=500"
-    found_endpoints = []
+    headers = {h: idx for idx, h in enumerate(rows[0])}
+    idx_orig = headers.get("original", 0)
+    idx_ts = headers.get("timestamp", 1)
+    idx_status = headers.get("statuscode", 2) if "statuscode" in headers else -1
+    idx_mime = headers.get("mimetype", 3) if "mimetype" in headers else -1
+
+    results = []
+    for row in rows[1:]:
+        try:
+            orig_url = row[idx_orig]
+            ts = row[idx_ts]
+            status = str(row[idx_status]) if idx_status != -1 else "N/A"
+            mime = str(row[idx_mime]) if idx_mime != -1 else "N/A"
+            
+            url_lower = orig_url.lower()
+            parsed_path = urllib.parse.urlparse(orig_url).path.lower()
+
+            # 1. Check -exclude keywords
+            if exclude_kws and any(ex in url_lower for ex in exclude_kws):
+                continue
+
+            # 2. Check inurl keywords (if specified, at least one must match)
+            if inurl_kws and not any(kw in url_lower for kw in inurl_kws):
+                continue
+
+            # 3. Check file extensions (if specified and not 'all')
+            if filetypes and "all" not in filetypes:
+                if not any(parsed_path.endswith(f".{ft}") for ft in filetypes):
+                    continue
+
+            # 4. Check status codes (if specified and not 'all')
+            if status_codes and "all" not in status_codes:
+                if not any(sc == status for sc in status_codes):
+                    continue
+
+            snapshot_url = f"https://web.archive.org/web/{ts}/{orig_url}"
+            results.append((orig_url, format_timestamp(ts), status, mime, ts, snapshot_url))
+        except Exception:
+            continue
+
+    return results
+
+
+def grep_snapshot_content(ts, orig_url, intext_kw):
+    """
+    Download a Wayback snapshot body using id_ modifier (raw content) and search for intext keyword/pattern.
+    Returns matching snippet around the keyword if found, or None.
+    """
+    if not requests or not BeautifulSoup:
+        return None
+
+    raw_archive_url = f"http://web.archive.org/web/{ts}id_/{orig_url}"
     try:
-        resp = requests.get(url, timeout=20, headers={'User-Agent': random.choice(USER_AGENTS)})
+        resp = requests.get(raw_archive_url, timeout=12, headers={'User-Agent': random.choice(USER_AGENTS)})
         if resp.status_code == 200:
-            rows = resp.json()
-            if len(rows) > 1:
-                for row in rows[1:]:
-                    orig_url, ts = row[0], row[1]
-                    parsed_path = urllib.parse.urlparse(orig_url).path.lower()
-                    if any(parsed_path.endswith(f".{x}") for x in exts):
-                        found_endpoints.append((orig_url, format_timestamp(ts)))
-        else:
+            text = resp.text
+            match = re.search(re.escape(intext_kw), text, re.IGNORECASE)
+            if not match:
+                try:
+                    match = re.search(intext_kw, text, re.IGNORECASE)
+                except Exception:
+                    pass
+            
+            if match:
+                start = max(0, match.start() - 40)
+                end = min(len(text), match.end() + 60)
+                snippet = text[start:end].replace('\n', ' ').replace('\r', ' ')
+                snippet = re.sub(r'\s+', ' ', snippet).strip()
+                return snippet
+    except Exception:
+        pass
+    return None
+
+
+def run_wayback_cdx_dork_builder(domain):
+    """Interactive CDX Dork Builder (`CDX Dorking & Historical Content Search`)."""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}--- Wayback CDX Interactive Dork Builder & Archive Search ---{Colors.RESET}")
+    print(f"{Colors.WHITE}Construct targeted Boolean/filter dorks across Internet Archive CDX historical snapshots.{Colors.RESET}\n")
+
+    inurl_input = input(f"{Colors.GREEN}[1] URL Keywords (`inurl:`, comma-separated, e.g. admin, login, api, config, backup) [press Enter for ALL]: {Colors.RESET}").strip()
+    inurl_kws = [k.strip().lower() for k in inurl_input.split(',') if k.strip()]
+
+    ex_input = input(f"{Colors.GREEN}[2] Exclude Keywords (`-exclude`, comma-separated, e.g. wp-includes, bootstrap, jquery) [press Enter to skip]: {Colors.RESET}").strip()
+    exclude_kws = [k.strip().lower() for k in ex_input.split(',') if k.strip()]
+
+    ft_input = input(f"{Colors.GREEN}[3] File Extensions (`filetype:`, comma-separated, e.g. env, sql, conf, log, bak, zip, pdf) [default: ALL]: {Colors.RESET}").strip()
+    filetypes = [f.strip().lower().lstrip('.') for f in ft_input.split(',') if f.strip()] if ft_input else ["all"]
+
+    sc_input = input(f"{Colors.GREEN}[4] HTTP Status Codes (`status:`, comma-separated, e.g. 200, 403, 301) [default: ALL]: {Colors.RESET}").strip()
+    status_codes = [s.strip() for s in sc_input.split(',') if s.strip()] if sc_input else ["all"]
+
+    from_year = input(f"{Colors.GREEN}[5] Start Year (`from:`, e.g. 2016) [press Enter for all time]: {Colors.RESET}").strip()
+    to_year = input(f"{Colors.GREEN}[6] End Year (`to:`, e.g. 2023) [press Enter for all time]: {Colors.RESET}").strip()
+
+    intext_kw = input(f"{Colors.GREEN}[7] Historical Content Grep (`intext:`, keyword/regex inside archived pages, e.g. API_KEY, password) [press Enter to skip]: {Colors.RESET}").strip()
+
+    print(f"\n{Colors.YELLOW}[*] Building CDX query & fetching historical archive index for *.{domain}...{Colors.RESET}")
+    
+    cdx_url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original,timestamp,statuscode,mimetype&collapse=urlkey&limit=1500"
+    if from_year and from_year.isdigit():
+        cdx_url += f"&from={from_year}"
+    if to_year and to_year.isdigit():
+        cdx_url += f"&to={to_year}"
+
+    try:
+        resp = requests.get(cdx_url, timeout=20, headers={'User-Agent': random.choice(USER_AGENTS)})
+        if resp.status_code != 200:
             print(f"{Colors.RED}[!] CDX API returned HTTP {resp.status_code}{Colors.RESET}")
+            return
+        rows = resp.json()
     except Exception as e:
-        print(f"{Colors.RED}[!] Wayback recon failed: {e}{Colors.RESET}")
+        print(f"{Colors.RED}[!] CDX API query failed: {e}{Colors.RESET}")
+        return
 
-    print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Found {len(found_endpoints)} archived historical endpoints:{Colors.RESET}")
-    for idx, (u, t) in enumerate(found_endpoints[:50], 1):
-        print(f"  {Colors.CYAN}[{t}]{Colors.RESET} {Colors.WHITE}{u}{Colors.RESET}")
+    filtered = filter_cdx_endpoints(rows, inurl_kws, exclude_kws, filetypes, status_codes)
+    print(f"{Colors.GREEN}{Colors.BOLD}[+] Found {len(filtered)} historical endpoints matching CDX Dork criteria.{Colors.RESET}")
 
-    if len(found_endpoints) > 50:
-        print(f"{Colors.YELLOW}... and {len(found_endpoints) - 50} more.{Colors.RESET}")
+    if not filtered:
+        print(f"{Colors.YELLOW}[!] No historical endpoints matched the specified dork criteria.{Colors.RESET}")
+        return
 
-    if found_endpoints:
-        opt = input(f"\n{Colors.GREEN}[+] Save archived URLs to file? (y/N): {Colors.RESET}").strip().lower()
-        if opt.startswith('y'):
-            filename = f"wayback_files_{domain}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                for u, t in found_endpoints:
-                    f.write(f"[{t}] {u}\n")
-            print(f"{Colors.GREEN}[+] Saved to {filename}{Colors.RESET}")
+    for idx, (orig_url, fmt_ts, status, mime, raw_ts, snap_url) in enumerate(filtered[:50], 1):
+        status_col = Colors.GREEN if status == "200" else (Colors.RED if status in ["403", "401"] else Colors.YELLOW)
+        print(f"  {Colors.CYAN}[{fmt_ts}]{Colors.RESET} {status_col}[{status:<3}]{Colors.RESET} {Colors.WHITE}{snap_url:<75}{Colors.RESET} {Colors.MAGENTA}({mime}){Colors.RESET}")
+        print(f"     {Colors.YELLOW}-> Target Path: {orig_url}{Colors.RESET}")
+
+    if len(filtered) > 50:
+        print(f"{Colors.YELLOW}... and {len(filtered) - 50} more endpoints.{Colors.RESET}")
+
+    intext_matches = []
+    if intext_kw:
+        target_snaps = [f for f in filtered if f[2] == "200"][:40]
+        if target_snaps:
+            print(f"\n{Colors.YELLOW}{Colors.BOLD}[*] Launching Historical Content Grep (`intext:{intext_kw}`) across {len(target_snaps)} snapshots...{Colors.RESET}")
+            for idx, (orig_url, fmt_ts, status, mime, raw_ts, snap_url) in enumerate(target_snaps, 1):
+                print(f"\r{Colors.CYAN}[{idx}/{len(target_snaps)}]{Colors.RESET} Grepping {Colors.WHITE}{orig_url[:50]:<50}{Colors.RESET}...", end="", flush=True)
+                snippet = grep_snapshot_content(raw_ts, orig_url, intext_kw)
+                if snippet:
+                    intext_matches.append((orig_url, fmt_ts, snippet, snap_url))
+                time.sleep(0.3)
+            print()
+
+            if intext_matches:
+                print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Historical Content Grep identified {len(intext_matches)} snapshots containing '{intext_kw}':{Colors.RESET}")
+                for u, t, snip, snap_u in intext_matches:
+                    print(f"  {Colors.RED}[MATCH @ {t}]{Colors.RESET} {Colors.WHITE}{snap_u}{Colors.RESET}")
+                    print(f"    {Colors.CYAN}Target Path: {u}{Colors.RESET}")
+                    print(f"    {Colors.YELLOW}Snippet: \"...{snip}...\"{Colors.RESET}\n")
+            else:
+                print(f"\n{Colors.YELLOW}[!] No historical content matches found for '{intext_kw}' in the sampled snapshots.{Colors.RESET}")
+
+    opt = input(f"\n{Colors.GREEN}[+] Save CDX Dorking results to TXT & JSON reports? (y/N): {Colors.RESET}").strip().lower()
+    if opt.startswith('y'):
+        ts_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        txt_file = f"cdx_dork_{domain}_{ts_str}.txt"
+        json_file = f"cdx_dork_{domain}_{ts_str}.json"
+
+        with open(txt_file, 'w', encoding='utf-8') as f:
+            f.write(f"WAYBACK CDX DORKING REPORT FOR: {domain}\n")
+            f.write(f"Dork Criteria: inurl={inurl_kws} | -exclude={exclude_kws} | filetype={filetypes} | status={status_codes} | from/to={from_year}-{to_year} | intext={intext_kw}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("=== MATCHING HISTORICAL SNAPSHOTS ===\n")
+            for orig_url, fmt_ts, status, mime, raw_ts, snap_url in filtered:
+                f.write(f"[{fmt_ts}] [HTTP {status}] ({mime}) {snap_url}\n  Original Target: {orig_url}\n")
+            
+            if intext_matches:
+                f.write("\n=== INTEXT HISTORICAL CONTENT MATCHES ===\n")
+                for u, t, snip, snap_u in intext_matches:
+                    f.write(f"[{t}] {snap_u}\n  Original Target: {u}\n  Snippet: \"...{snip}...\"\n\n")
+
+        json_data = {
+            "domain": domain,
+            "timestamp": ts_str,
+            "dork_criteria": {
+                "inurl": inurl_kws,
+                "exclude": exclude_kws,
+                "filetypes": filetypes,
+                "status_codes": status_codes,
+                "date_range": [from_year, to_year],
+                "intext": intext_kw
+            },
+            "endpoints_count": len(filtered),
+            "endpoints": [
+                {"snapshot_url": snap_url, "original_url": u, "date": t, "status": s, "mime": m} for u, t, s, m, r, snap_url in filtered
+            ],
+            "intext_matches": [
+                {"snapshot_url": snap_u, "original_url": u, "date": t, "snippet": snip} for u, t, snip, snap_u in intext_matches
+            ]
+        }
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+        print(f"{Colors.GREEN}[+] Reports saved successfully to:\n    - {txt_file}\n    - {json_file}{Colors.RESET}")
 
 
 def discover_historical_site_tree(domain):
@@ -368,12 +532,13 @@ def run_wayback_deep_harvesting(domain):
         print(f"\r{Colors.CYAN}[{idx}/{len(all_snapshots_to_process)}]{Colors.RESET} Harvesting {Colors.WHITE}{path:<20}{Colors.RESET} ({fmt_date})...", end="", flush=True)
         data = harvest_snapshot_data(ts, orig)
         if data:
-            update_timeline(timeline["emails"], data["emails"], fmt_date, path)
-            update_timeline(timeline["phones"], data["phones"], fmt_date, path)
-            update_timeline(timeline["piva"], data["piva"], fmt_date, path)
-            update_timeline(timeline["analytics_ids"], data["analytics_ids"], fmt_date, path)
-            update_timeline(timeline["partners_clients"], data["partners_clients"], fmt_date, path)
-            update_timeline(timeline["products_projects"], data["products_projects"], fmt_date, path)
+            snap_link = f"https://web.archive.org/web/{ts}/{orig}"
+            update_timeline(timeline["emails"], data["emails"], fmt_date, snap_link)
+            update_timeline(timeline["phones"], data["phones"], fmt_date, snap_link)
+            update_timeline(timeline["piva"], data["piva"], fmt_date, snap_link)
+            update_timeline(timeline["analytics_ids"], data["analytics_ids"], fmt_date, snap_link)
+            update_timeline(timeline["partners_clients"], data["partners_clients"], fmt_date, snap_link)
+            update_timeline(timeline["products_projects"], data["products_projects"], fmt_date, snap_link)
         time.sleep(0.5)  # Respect Internet Archive servers
 
     print(f"\n\n{Colors.GREEN}{Colors.BOLD}=============================================================================")
@@ -389,7 +554,7 @@ def run_wayback_deep_harvesting(domain):
         for name, meta in sorted(items.items(), key=lambda x: x[1]["first_seen"]):
             paths_str = ", ".join(sorted(meta["paths"]))
             period = f"{meta['first_seen']} -> {meta['last_seen']}" if meta['first_seen'] != meta['last_seen'] else f"{meta['first_seen']}"
-            print(f"  {Colors.CYAN}[{period:<22}]{Colors.RESET} {Colors.WHITE}{name:<38}{Colors.RESET} {Colors.YELLOW}(Path: {paths_str}){Colors.RESET}")
+            print(f"  {Colors.CYAN}[{period:<22}]{Colors.RESET} {Colors.WHITE}{name:<38}{Colors.RESET} {Colors.YELLOW}(Snapshot: {paths_str}){Colors.RESET}")
 
     # Prompt to save results
     save_opt = input(f"\n{Colors.GREEN}[+] Save Deep Intelligence report to JSON & TXT files? (y/N): {Colors.RESET}").strip().lower()
@@ -405,7 +570,7 @@ def run_wayback_deep_harvesting(domain):
                 name: {
                     "first_seen": meta["first_seen"],
                     "last_seen": meta["last_seen"],
-                    "paths": sorted(list(meta["paths"]))
+                    "snapshot_urls": sorted(list(meta["paths"]))
                 } for name, meta in items.items()
             }
         
@@ -421,7 +586,7 @@ def run_wayback_deep_harvesting(domain):
                 for name, meta in sorted(items.items(), key=lambda x: x[1]["first_seen"]):
                     paths_str = ", ".join(sorted(meta["paths"]))
                     period = f"{meta['first_seen']} -> {meta['last_seen']}" if meta['first_seen'] != meta['last_seen'] else f"{meta['first_seen']}"
-                    f.write(f"[{period}] {name} (Paths: {paths_str})\n")
+                    f.write(f"[{period}] {name} (Snapshot: {paths_str})\n")
                 f.write("\n")
 
         print(f"{Colors.GREEN}[+] Reports saved successfully to:\n    - {json_file}\n    - {txt_file}{Colors.RESET}")
@@ -432,7 +597,7 @@ def run_wayback_recon():
     print(f"\n{Colors.CYAN}{Colors.BOLD}=============================================================================")
     print("                 WAYBACK MACHINE HISTORICAL ARCHIVE RECON                    ")
     print("=============================================================================" + Colors.RESET)
-    print(f"  {Colors.CYAN}[1]{Colors.RESET} Exposed Sensitive Files & Backups Recon (.env, .sql, .bak...)")
+    print(f"  {Colors.CYAN}[1]{Colors.RESET} Wayback CDX Interactive Dork Builder {Colors.YELLOW}(inurl, filetype, status, intext...){Colors.RESET}")
     print(f"  {Colors.CYAN}[2]{Colors.RESET} Deep Content & Corporate Intelligence Harvesting {Colors.YELLOW}(Team, Partners, Products){Colors.RESET}")
     print(f"  {Colors.CYAN}[0]{Colors.RESET} Return to Main Menu")
 
@@ -446,7 +611,7 @@ def run_wayback_recon():
     domain = clean_domain(domain)
 
     if choice == "1":
-        run_wayback_exposed_files(domain)
+        run_wayback_cdx_dork_builder(domain)
     elif choice == "2":
         run_wayback_deep_harvesting(domain)
     else:

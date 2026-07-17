@@ -157,11 +157,12 @@ def render_tree_view(tree_branches, sitemap_count, robots_count):
         print(f"  └── {Colors.YELLOW}... and {len(sorted_branches) - max_display} additional branches.{Colors.RESET}")
 
 
-def run_technology_detector():
+def run_technology_detector(target_url=None, interactive=True):
     print(f"\n{Colors.CYAN}{Colors.BOLD}--- Web Technology & CMS Fingerprinter (Stack & Site Tree Detector) ---{Colors.RESET}")
-    target_url = input(f"{Colors.GREEN}[+] Enter Target URL (e.g. https://example.com): {Colors.RESET}").strip()
     if not target_url:
-        return
+        target_url = input(f"{Colors.GREEN}[+] Enter Target URL (e.g. https://example.com): {Colors.RESET}").strip()
+    if not target_url:
+        return None
     if not target_url.startswith('http'):
         target_url = "https://" + target_url
 
@@ -250,6 +251,14 @@ def run_technology_detector():
     # Render Site Tree View
     render_tree_view(tree_data["tree_branches"], len(tree_data["sitemap_urls"]), len(tree_data["robots_disallow"]))
 
+    if not interactive:
+        return {
+            "target_url": target_url,
+            "status_code": resp.status_code,
+            "technologies": sorted(list(set(techs))),
+            "tree_data": tree_data
+        }
+
     if tree_data["sitemap_urls"] or tree_data["robots_disallow"]:
         opt = input(f"\n{Colors.GREEN}[+] Save discovered Site Tree & Sitemap URLs to file? (y/N): {Colors.RESET}").strip().lower()
         if opt.startswith('y'):
@@ -271,3 +280,4 @@ def run_technology_detector():
             print(f"{Colors.GREEN}[+] Site Tree report saved to {filename}{Colors.RESET}")
 
     print(f"\n{Colors.CYAN}[💡 Recommended Action]{Colors.RESET} Based on detected tech and site tree, you can use Option 1 or Option 2 to launch targeted dorks against {target_url}.\n")
+    return None

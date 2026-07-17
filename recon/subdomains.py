@@ -21,17 +21,17 @@ def clean_domain(domain):
     return d.rstrip('/')
 
 
-def run_subdomain_recon(search_callback=None):
-    print(f"\n{Colors.CYAN}{Colors.BOLD}--- Passive Subdomain Enumeration (crt.sh Certificate Logs) ---{Colors.RESET}")
-    domain = input(f"{Colors.GREEN}[+] Target Domain (e.g. example.com): {Colors.RESET}").strip()
-    if not domain:
-        return
+def enumerate_subdomains_passive(domain, quiet=False):
+    """
+    Programmatic passive subdomain enumeration across crt.sh, HackerTarget, and UrlScan.
+    Returns sorted list of unique subdomains for `domain`.
+    """
     domain = clean_domain(domain)
     subdomains = set()
     headers = {'User-Agent': random.choice(USER_AGENTS)}
 
-    # 1. crt.sh Certificate Transparency
-    print(f"{Colors.YELLOW}[*] Querying Certificate Transparency logs (crt.sh) for *.{domain}...{Colors.RESET}")
+    if not quiet:
+        print(f"{Colors.YELLOW}[*] Querying Certificate Transparency logs (crt.sh) for *.{domain}...{Colors.RESET}")
     try:
         url_crt = f"https://crt.sh/?q=%.{domain}&output=json"
         resp = requests.get(url_crt, timeout=20, headers=headers)
@@ -43,12 +43,14 @@ def run_subdomain_recon(search_callback=None):
                     if line.endswith(domain) and line != domain and not ' ' in line:
                         subdomains.add(line)
         else:
-            print(f"{Colors.RED}[!] crt.sh returned HTTP {resp.status_code}. Pivoting to backup sources...{Colors.RESET}")
+            if not quiet:
+                print(f"{Colors.RED}[!] crt.sh returned HTTP {resp.status_code}. Pivoting to backup sources...{Colors.RESET}")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] crt.sh query timed out or failed ({e}). Pivoting to secondary OSINT sources...{Colors.RESET}")
+        if not quiet:
+            print(f"{Colors.YELLOW}[!] crt.sh query timed out or failed ({e}). Pivoting to secondary OSINT sources...{Colors.RESET}")
 
-    # 2. HackerTarget HostSearch API
-    print(f"{Colors.YELLOW}[*] Querying HackerTarget Passive DNS for *.{domain}...{Colors.RESET}")
+    if not quiet:
+        print(f"{Colors.YELLOW}[*] Querying HackerTarget Passive DNS for *.{domain}...{Colors.RESET}")
     try:
         url_ht = f"https://api.hackertarget.com/hostsearch/?q={domain}"
         resp_ht = requests.get(url_ht, timeout=15, headers=headers)
@@ -62,8 +64,8 @@ def run_subdomain_recon(search_callback=None):
     except Exception:
         pass
 
-    # 3. UrlScan.io Search API
-    print(f"{Colors.YELLOW}[*] Querying UrlScan.io Index for *.{domain}...{Colors.RESET}")
+    if not quiet:
+        print(f"{Colors.YELLOW}[*] Querying UrlScan.io Index for *.{domain}...{Colors.RESET}")
     try:
         url_us = f"https://urlscan.io/api/v1/search/?q=domain:{domain}"
         resp_us = requests.get(url_us, timeout=15, headers=headers)
@@ -75,7 +77,19 @@ def run_subdomain_recon(search_callback=None):
     except Exception:
         pass
 
-    subs_sorted = sorted(list(subdomains))
+    return sorted(list(subdomains))
+
+
+def run_subdomain_recon(search_callback=None, domain=None):
+    print(f"\n{Colors.CYAN}{Colors.BOLD}--- Passive Subdomain Enumeration (crt.sh Certificate Logs) ---{Colors.RESET}")
+    if not domain:
+        domain = input(f"{Colors.GREEN}[+] Target Domain (e.g. example.com): {Colors.RESET}").strip()
+    if not domain:
+        return
+    domain = clean_domain(domain)
+    
+    subs_sorted = enumerate_subdomains_passive(domain, quiet=False)
+
     print(f"\n{Colors.GREEN}{Colors.BOLD}[+] Discovered {len(subs_sorted)} unique subdomains for {domain}:{Colors.RESET}")
     for idx, sub in enumerate(subs_sorted[:100], 1):
         print(f"  {Colors.CYAN}[{idx:>3}]{Colors.RESET} {Colors.WHITE}{sub}{Colors.RESET}")
