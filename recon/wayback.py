@@ -59,22 +59,52 @@ def filter_cdx_endpoints(rows, inurl_kws, exclude_kws, filetypes, status_codes):
     file extensions (filetype), and HTTP status codes (status).
     Returns a list of tuples: (orig_url, formatted_timestamp, statuscode, mimetype, raw_ts, snapshot_url).
     """
-    if not rows or len(rows) <= 1:
+    if not rows:
         return []
 
-    headers = {h: idx for idx, h in enumerate(rows[0])}
-    idx_orig = headers.get("original", 0)
-    idx_ts = headers.get("timestamp", 1)
-    idx_status = headers.get("statuscode", 2) if "statuscode" in headers else -1
-    idx_mime = headers.get("mimetype", 3) if "mimetype" in headers else -1
+    # Check if first row is a header row (e.g. ['original', 'timestamp', 'statuscode', 'mimetype'])
+    first_row = [str(x).lower() for x in rows[0]]
+    if "original" in first_row:
+        headers = {h: idx for idx, h in enumerate(first_row)}
+        idx_orig = headers.get("original", 0)
+        idx_ts = headers.get("timestamp", 1)
+        idx_status = headers.get("statuscode", 2)
+        idx_mime = headers.get("mimetype", 3)
+        data_rows = rows[1:]
+    else:
+        # Rows are pure data rows according to fl=original,timestamp,statuscode,mimetype
+        idx_orig = 0
+        idx_ts = 1
+        idx_status = 2
+        idx_mime = 3
+        data_rows = rows
 
     results = []
-    for row in rows[1:]:
+    for row in data_rows:
         try:
+            if len(row) <= max(idx_orig, idx_ts):
+                continue
             orig_url = row[idx_orig]
-            ts = row[idx_ts]
-            status = str(row[idx_status]) if idx_status != -1 else "N/A"
-            mime = str(row[idx_mime]) if idx_mime != -1 else "N/A"
+            ts = str(row[idx_ts])
+            
+            # Statuscode
+            status = str(row[idx_status]) if (0 <= idx_status < len(row)) else "N/A"
+            if status in ["", "None"]:
+                status = "-"
+
+            # Mimetype
+            mime = str(row[idx_mime]) if (0 <= idx_mime < len(row)) else "N/A"
+            if mime in ["", "None", "-"]:
+                # Infer basic MIME from extension if available
+                ext = orig_url.split('?')[0].split('.')[-1].lower() if '.' in orig_url else ''
+                mime_map = {
+                    'html': 'text/html', 'htm': 'text/html', 'php': 'text/html',
+                    'pdf': 'application/pdf', 'json': 'application/json',
+                    'xml': 'application/xml', 'js': 'application/javascript',
+                    'css': 'text/css', 'png': 'image/png', 'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg', 'gif': 'image/gif', 'svg': 'image/svg+xml'
+                }
+                mime = mime_map.get(ext, mime if mime != "" else "-")
             
             url_lower = orig_url.lower()
             parsed_path = urllib.parse.urlparse(orig_url).path.lower()
@@ -160,21 +190,73 @@ def run_wayback_cdx_dork_builder(domain):
 
     print(f"\n{Colors.YELLOW}[*] Building CDX query & fetching historical archive index for *.{domain}...{Colors.RESET}")
     
-    cdx_url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original,timestamp,statuscode,mimetype&collapse=urlkey&limit=1500"
+    PAGE_SIZE = 1000
+    base_url = (
+        f"https://web.archive.org/cdx/search/cdx?url=*.{domain}/*"
+        f"&output=json&fl=original,timestamp,statuscode,mimetype"
+        f"&collapse=urlkey&limit={PAGE_SIZE}&showResumeKey=true"
+    )
     if from_year and from_year.isdigit():
-        cdx_url += f"&from={from_year}"
+        base_url += f"&from={from_year}"
     if to_year and to_year.isdigit():
-        cdx_url += f"&to={to_year}"
+        base_url += f"&to={to_year}"
 
-    try:
-        resp = requests.get(cdx_url, timeout=20, headers={'User-Agent': random.choice(USER_AGENTS)})
-        if resp.status_code != 200:
-            print(f"{Colors.RED}[!] CDX API returned HTTP {resp.status_code}{Colors.RESET}")
-            return
-        rows = resp.json()
-    except Exception as e:
-        print(f"{Colors.RED}[!] CDX API query failed: {e}{Colors.RESET}")
-        return
+    RETRYABLE_CODES = {429, 500, 502, 503, 504}
+
+    def _fetch_page(url):
+        """Fetch one CDX page with retry. Returns (rows, resume_key) or (None, None) on failure."""
+        for _attempt in range(3):
+            try:
+                resp = requests.get(url, timeout=60, headers={'User-Agent': random.choice(USER_AGENTS)})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # CDX API appends the resumeKey as the very last row when showResumeKey=true
+                    resume_key = None
+                    if data and len(data) >= 2 and len(data[-1]) == 1:
+                        resume_key = data[-1][0]
+                        data = data[:-1]
+                    # Skip the header row (first item) if present
+                    if data and data[0][0] == "original":
+                        data = data[1:]
+                    return data, resume_key
+                elif resp.status_code in RETRYABLE_CODES:
+                    wait = 2 ** _attempt * 5
+                    print(f"{Colors.RED}[!] CDX returned HTTP {resp.status_code} (attempt {_attempt + 1}/3){Colors.RESET}")
+                    if _attempt < 2:
+                        print(f"{Colors.YELLOW}[*] Retrying in {wait}s...{Colors.RESET}")
+                        time.sleep(wait)
+                else:
+                    print(f"{Colors.RED}[!] CDX API returned HTTP {resp.status_code} — not retrying.{Colors.RESET}")
+                    return None, None
+            except Exception as e:
+                wait = 2 ** _attempt * 5
+                print(f"{Colors.RED}[!] CDX request failed (attempt {_attempt + 1}/3): {e}{Colors.RESET}")
+                if _attempt < 2:
+                    print(f"{Colors.YELLOW}[*] Retrying in {wait}s...{Colors.RESET}")
+                    time.sleep(wait)
+        return None, None
+
+    all_rows = []
+    page_num = 1
+    next_url = base_url
+    while True:
+        print(f"{Colors.YELLOW}[*] Fetching CDX page {page_num} ({len(all_rows)} records so far)...{Colors.RESET}")
+        page_rows, resume_key = _fetch_page(next_url)
+        if page_rows is None:
+            print(f"{Colors.RED}[!] CDX API unreachable after 3 attempts. Try again later.{Colors.RESET}")
+            if not all_rows:
+                return
+            print(f"{Colors.YELLOW}[!] Continuing with {len(all_rows)} records already fetched.{Colors.RESET}")
+            break
+        all_rows.extend(page_rows)
+        if not resume_key or len(page_rows) < PAGE_SIZE:
+            break
+        next_url = base_url + f"&resumeKey={urllib.parse.quote(resume_key)}"
+        page_num += 1
+        time.sleep(1)  # gentle rate limiting between pages
+
+    rows = all_rows
+    print(f"{Colors.GREEN}[+] Total CDX records fetched: {len(rows)}{Colors.RESET}")
 
     filtered = filter_cdx_endpoints(rows, inurl_kws, exclude_kws, filetypes, status_codes)
     print(f"{Colors.GREEN}{Colors.BOLD}[+] Found {len(filtered)} historical endpoints matching CDX Dork criteria.{Colors.RESET}")
@@ -262,7 +344,7 @@ def discover_historical_site_tree(domain):
     Query CDX Global Index for unique historical paths ever recorded on *.domain.
     """
     api_url = (
-        f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json"
+        f"https://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json"
         f"&fl=original,statuscode&filter=statuscode:200&collapse=urlkey&limit=1500"
     )
     try:
@@ -313,7 +395,7 @@ def fetch_historical_snapshots(domain, path, limit_per_year=1, start_year=None):
     """
     target_url = f"{domain.rstrip('/')}{path}"
     api_url = (
-        f"http://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(target_url)}&output=json"
+        f"https://web.archive.org/cdx/search/cdx?url={urllib.parse.quote(target_url)}&output=json"
         f"&fl=timestamp,original,digest,statuscode&filter=statuscode:200&collapse=digest"
     )
     try:
